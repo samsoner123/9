@@ -41,8 +41,14 @@ If you want to add more than one account, the syntax is the following (mobile_us
 ### Using Github Actions
 * Fork the repo.
 * Go to `Settings`>`Secrets`>`Actions` and add `New repository secret` named `ACCOUNTS` where the value will be `Your Email:Your Password`.
+* To specify the time and frequency the script runs using Github Actions, the script default is daily at 10:00 am UTC
+  * Go to `Actions` > `Deploy` > `deploy.yml` and select edit (i.e., pencil icon)
+  * Line 6 `-cron:` determines when the script runs. Github cron uses UTC timzone by default, 
+  * Be sure to customize cron to run once daily for your local timezone, converted to UTC time. For example, `cron: '0 10 * * *' # every day at 6:00 am EST, 10:00 am UTC` is provided by default.
+  * Visit [https://crontab.guru](https://crontab.guru/) for details how to customize cron
+
 * Go to `Actions`>`Deploy` and run the workflow.
- 
+
 ## Features
 * Bing searches (Desktop, Mobile and Edge) with User-Agents.
 * Complete automatically the daily set.
