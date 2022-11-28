@@ -9,6 +9,7 @@ import urllib.parse
 from pathlib import Path
 from argparse import ArgumentParser
 from datetime import date, datetime, timedelta
+import traceback
 
 import ipapi
 import requests
@@ -28,6 +29,10 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.ui import WebDriverWait
+
+from email.message import EmailMessage
+import ssl
+import smtplib
 
 # Define user-agents
 PC_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 Edg/107.0.1418.24'
@@ -107,6 +112,10 @@ def login(browser: WebDriver, email: str, pwd: str, isMobile: bool = False):
         elif browser.title == 'Your account has been temporarily suspended':
             LOGS[CURRENT_ACCOUNT]['Last check'] = 'Your account has been locked !'
             FINISHED_ACCOUNTS.append(CURRENT_ACCOUNT)
+            # Sends email if the account is locked
+            if ARGS.emailalerts:
+                prRed("[EMAIL SENDER] This account has been locked! Sending email...")
+                send_email(CURRENT_ACCOUNT, "lock")
             updateLogs()
             cleanLogs()
             raise Exception(prRed('[ERROR] Your account has been locked !'))
@@ -154,8 +163,6 @@ def login(browser: WebDriver, email: str, pwd: str, isMobile: bool = False):
             FINISHED_ACCOUNTS.append(CURRENT_ACCOUNT)       
             updateLogs()
             cleanLogs()
-            if sys.stdout.isatty():
-                input('Press any key to close...')
             os._exit(0)
         else:
             LOGS[CURRENT_ACCOUNT]['Last check'] = 'Unknown error !'
@@ -1067,6 +1074,16 @@ def argumentParser():
                         help='[Optional] Enable privacy mode.',
                         action='store_true',
                         required=False)
+    parser.add_argument(
+        "--emailalerts",
+        help="[Optional] Enable GMAIL email alerts.",
+        action="store_true",
+        required=False)
+    parser.add_argument(
+        "--redeem",
+        help="[Optional] Enable auto-redeem rewards based on accounts.json goals.",
+        action="store_true",
+        required=False)
     args = parser.parse_args()
     if args.everyday:
         if isinstance(validateTime(args.everyday), str):
@@ -1193,6 +1210,269 @@ def loadAccounts():
             input()
             ACCOUNTS = json.load(open("accounts.json", "r"))
 
+def send_email(account, type):
+    email_info = []
+    try:
+        email_info = json.load(open("email.json", "r"))
+    except FileNotFoundError:
+        with open("email.json", "w") as f:
+            f.write(
+                json.dumps(
+                    [
+                        {
+                            "sender": "sender@example.com",
+                            "password": "GoogleAppPassword",
+                            "receiver": "receiver@example.com",
+                            "withdrawal": "true",
+                            "lock": "true",
+                            "ban": "true",
+                            "phoneverification": "true",
+                        }
+                    ],
+                    indent=4,
+                )
+            )
+
+    email_sender = email_info[0]["sender"]
+    email_password = email_info[0]["password"]
+    email_receiver = email_info[0]["receiver"]
+
+    match type:
+        case "withdrawal":
+            if email_info[0]["withdrawal"] == "false":
+                return
+            email_subject = account + " has redeemed a card in Microsoft Rewards!"
+            email_body = "Check that account's mail!"
+        case "lock":
+            if email_info[0]["lock"] == "false":
+                return
+            email_subject = account + " has been locked from Microsoft Rewards!"
+            email_body = (
+                "Fix it by logging in through this link: https://rewards.microsoft.com/"
+            )
+        case "ban":
+            if email_info[0]["ban"] == "false":
+                return
+            email_subject = account + " has been shadow banned from Microsoft Rewards!"
+            email_body = "You can either close your account or try contacting support: https://support.microsoft.com/en-US"
+        case "phoneverification":
+            if email_info[0]["phoneverification"] == "false":
+                return
+            email_subject = account + " needs phone verification for redeeming rewards!"
+            email_body = (
+                "Fix it by manually redeeming a reward: https://rewards.microsoft.com/"
+            )
+        case _:
+            return
+
+    email_message = EmailMessage()
+    email_message["From"] = email_sender
+    email_message["To"] = email_receiver
+    email_message["Subject"] = email_subject
+    email_message.set_content(email_body)
+
+    ssl_context = ssl.create_default_context()
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ssl_context) as smtp:
+        try:
+            smtp.login(email_sender, email_password)
+        except:
+            return
+        smtp.sendmail(email_sender, email_receiver, email_message.as_string())
+
+def redeem(browser, goal):
+    goal = goal.lower()
+    browser.get("https://rewards.microsoft.com/")
+    try:
+        goal_name = browser.find_element(
+            By.XPATH,
+            value="/html/body/div[1]/div[2]/main/div/ui-view/mee-rewards-dashboard/main/div/mee-rewards-redeem-info-card/div/mee-card-group/div/div[1]/mee-card/div/card-content/mee-rewards-redeem-goal-card/div/div[2]/h3",
+        )
+
+        goal_progress = browser.find_element(
+            By.XPATH,
+            value="/html/body/div[1]/div[2]/main/div/ui-view/mee-rewards-dashboard/main/div/mee-rewards-redeem-info-card/div/mee-card-group/div/div[1]/mee-card/div/card-content/mee-rewards-redeem-goal-card/div/div[2]/p",
+        )
+
+        # If goal is not set or is not the specified one, then set/change it
+        if "/" not in goal_progress.text.lower() or goal not in goal_name.text.lower():
+            # If we need to change it, it is mandatory to refresh the set goal button
+            if "/" in goal_progress.text.lower() and goal not in goal_name.text.lower():
+                # Check if unspecified goal has reached 100%
+                goal_progress = (
+                    browser.find_element(
+                        By.XPATH,
+                        value="/html/body/div[1]/div[2]/main/div/ui-view/mee-rewards-dashboard/main/div/mee-rewards-redeem-info-card/div/mee-card-group/div/div[1]/mee-card/div/card-content/mee-rewards-redeem-goal-card/div/div[2]/p",
+                    )
+                    .text.replace(" ", "")
+                    .split("/")
+                )
+                points = int(goal_progress[0].replace(",", ""))
+                total = int(goal_progress[1].replace(",", ""))
+
+                if points == total:
+                    # Choose remove goal element instead of redeem now
+                    element = browser.find_element(
+                        By.XPATH,
+                        value="/html/body/div[1]/div[2]/main/div/ui-view/mee-rewards-dashboard/main/div/mee-rewards-redeem-info-card/div/mee-card-group/div/div[1]/mee-card/div/card-content/mee-rewards-redeem-goal-card/div/div[2]/div/a[2]/span/ng-transclude",
+                    )
+                else:
+                    element = browser.find_element(
+                        By.XPATH,
+                        value="/html/body/div[1]/div[2]/main/div/ui-view/mee-rewards-dashboard/main/div/mee-rewards-redeem-info-card/div/mee-card-group/div/div[1]/mee-card/div/card-content/mee-rewards-redeem-goal-card/div/div[2]/div/a/span/ng-transclude",
+                    )
+
+                element.click()
+                time.sleep(3)
+                element = browser.find_element(
+                    By.XPATH,
+                    value="/html/body/div[1]/div[2]/main/div/ui-view/mee-rewards-dashboard/main/div/mee-rewards-redeem-info-card/div/mee-card-group/div/div[1]/mee-card/div/card-content/mee-rewards-redeem-goal-card/div/div[2]/div/a/span/ng-transclude",
+                )
+            else:
+                element = browser.find_element(
+                    By.XPATH,
+                    value="/html/body/div[1]/div[2]/main/div/ui-view/mee-rewards-dashboard/main/div/mee-rewards-redeem-info-card/div/mee-card-group/div/div[1]/mee-card/div/card-content/mee-rewards-redeem-goal-card/div/div[2]/div/a/span/ng-transclude",
+                )
+            element.click()
+            time.sleep(3)
+            elements = browser.find_elements(By.CLASS_NAME, "c-image")
+            goal_found = False
+            for e in elements:
+                if goal in e.get_attribute("alt").lower():
+                    e.click()
+                    goal_found = True
+                    break
+
+            if not goal_found:
+                prRed(
+                    "[REDEEM] Specified goal not found! Search for any typos in your accounts.json..."
+                )
+                return
+
+    except:
+        print(traceback.format_exc())
+        prRed("[REDEEM] Ran into an exception trying to redeem!")
+        return
+    finally:
+        browser.get("https://rewards.microsoft.com/")
+    try:
+        goal_progress = browser.find_element(
+            By.XPATH,
+            value="/html/body/div[1]/div[2]/main/div/ui-view/mee-rewards-dashboard/main/div/mee-rewards-redeem-info-card/div/mee-card-group/div/div[1]/mee-card/div/card-content/mee-rewards-redeem-goal-card/div/div[2]/p",
+        ).text
+
+        # Retries goal setting if for some reason it has failed (happens sheldomly)
+        if not "/" in goal_progress:
+            redeem(browser, goal)
+            return
+        else:
+            goal_progress = goal_progress.replace(" ", "").split("/")
+
+        points = int(goal_progress[0].replace(",", ""))
+        total = int(goal_progress[1].replace(",", ""))
+
+        goal = browser.find_element(
+            By.XPATH,
+            value='//*[@id="dashboard-set-goal"]/mee-card/div/card-content/mee-rewards-redeem-goal-card/div/div[2]/h3',
+        ).text
+
+        if points < total:
+            print(
+                "[REDEEM] " + str(total - points) + " points left to redeem your goal!"
+            )
+            return
+        elif points >= total:
+            print("[REDEEM] points are ready to be redeemed!")
+    except Exception as e:
+        print(traceback.format_exc())
+        prRed("[REDEEM] Ran into an exception trying to redeem!")
+        return
+    try:
+        try:
+            browser.find_element(
+                By.XPATH,
+                value="/html/body/div[1]/div[2]/main/div/ui-view/mee-rewards-dashboard/main/div/mee-rewards-redeem-info-card/div/mee-card-group/div/div[1]/mee-card/div/card-content/mee-rewards-redeem-goal-card/div/div[2]/div/a[1]/span/ng-transclude",
+            ).click()
+            time.sleep(random.uniform(2, 4))
+        except:
+            time.sleep(random.uniform(3, 5))
+            browser.find_element(
+                By.XPATH,
+                value="/html/body/div[1]/div[2]/main/div/ui-view/mee-rewards-dashboard/main/div/mee-rewards-redeem-info-card/div/mee-card-group/div/div[1]/mee-card/div/card-content/mee-rewards-redeem-goal-card/div/div[2]/div/a[1]",
+            ).click()
+        try:
+            url = browser.current_url
+            url = url.split("https://rewards.microsoft.com/redeem/")
+            id = url[1]
+            try:
+                browser.find_element(
+                    By.XPATH, value=f'//*[@id="redeem-pdp_{id}"]'
+                ).click()
+                time.sleep(random.uniform(3, 5))
+            except:
+                browser.find_element(
+                    By.XPATH, value=f'//*[@id="redeem-pdp_{id}"]/span[1]'
+                ).click()
+            try:
+                browser.find_element(
+                    By.XPATH, value='//*[@id="redeem-checkout-review-confirm"]'
+                ).click()
+                time.sleep(random.uniform(3, 5))
+            except:
+                browser.find_element(
+                    By.XPATH, value='//*[@id="redeem-checkout-review-confirm"]/span[1]'
+                ).click()
+        except Exception as e:
+            browser.get("https://rewards.microsoft.com/")
+            print(traceback.format_exc())
+            prRed("[REDEEM] Ran into an exception trying to redeem!")
+            return
+        # Handle phone verification landing page
+        try:
+            veri = browser.find_element(
+                By.XPATH, value='//*[@id="productCheckoutChallenge"]/form/div[1]'
+            ).text
+            if veri.lower() == "phone verification":
+                prRed("[REDEEM] Phone verification required!")
+                if ARGS.emailalerts:
+                    prRed(
+                        "[EMAIL SENDER] Phone verification is required for redeeming a reward in this account! Sending email..."
+                    )
+                    send_email(CURRENT_ACCOUNT, "phoneverification")
+                return
+        except:
+            pass
+        finally:
+            time.sleep(random.uniform(10, 20))
+        try:
+            error = browser.find_element(
+                By.XPATH, value='//*[@id="productCheckoutError"]/div/div[1]'
+            ).text
+            if "issue with your account or order" in error.lower():
+                message = f"\n[REDEEM] {CURRENT_ACCOUNT} has encountered the following message while attempting to auto-redeem rewards:\n{error}\nUnfortunately, this likely means this account has been shadow-banned. You may test your luck and contact support or just close the account and try again on another account."
+                prRed(message)
+                # Send shadow ban email
+                if ARGS.emailalerts:
+                    prRed(
+                        "[EMAIL SENDER] This account has been banned! Sending email..."
+                    )
+                    send_email(CURRENT_ACCOUNT, "ban")
+                return
+        except:
+            pass
+
+        prGreen("[REDEEM]" + CURRENT_ACCOUNT + " points redeemed!")
+        if ARGS.emailalerts:
+            prGreen(
+                "[EMAIL SENDER] This account has redeemed a reward! Sending email..."
+            )
+            send_email(CURRENT_ACCOUNT, "withdrawal")
+        return
+    except Exception as e:
+        print(traceback.format_exc())
+        prRed("[REDEEM] Ran into an exception trying to redeem!")
+        return
+
 def farmer():
     '''
     fuction that runs other functions to farm.
@@ -1230,6 +1510,16 @@ def farmer():
                     LOGS[CURRENT_ACCOUNT]['PC searches'] = True
                     updateLogs()
                     ERROR = False
+                    # Try to redeem a gift card if there are enough points
+                if ARGS.redeem:
+                    if 'goal' in account:
+                        goal = account["goal"]
+                    else:
+                        print(
+                            '[REEDEM] Goal has not been defined for this account, defaulting to Amazon Giftcard...'
+                        )
+                        goal = 'Amazon'
+                        redeem(browser, goal)
                 browser.quit()
 
             if MOBILE:
@@ -1302,8 +1592,6 @@ def main():
     hour, remain = divmod(delta, 3600)
     min, sec = divmod(remain, 60)
     print(f"The script took : {hour:02.0f}:{min:02.0f}:{sec:02.0f}")
-    if sys.stdout.isatty():
-        input('Press any key to close the program...')
           
 if __name__ == '__main__':
     main()
