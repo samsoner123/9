@@ -79,8 +79,14 @@ def browserSetup(isMobile: bool, user_agent: str = PC_USER_AGENT, proxy: str = N
         options.add_argument("--disable-dev-shm-usage")
     if proxy:
         options.add_argument(f"--proxy-server={proxy}")
-    chrome_browser_obj = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-    return chrome_browser_obj
+    
+    chrome_browser_obj = None
+    try:
+        chrome_browser_obj = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    except Exception:
+        chrome_browser_obj = webdriver.Chrome(options=options)
+    finally:
+        return chrome_browser_obj
 
 # Define login function
 def login(browser: WebDriver, email: str, pwd: str, isMobile: bool = False):
