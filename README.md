@@ -62,7 +62,7 @@ pip install -r requirements.txt
     - `--proxies` Add proxies without authentification (proxy1 proxy2..).
     - `--privacy` Enable privacy mode.
     - `--emailalerts` Enable GMAIL email alerts.
-    - `--redeeem` Enable auto-redeem rewards based on accounts.json goals.
+    - `--redeem` Enable auto-redeem rewards based on accounts.json goals.
   - If you run the script normally it asks you for input instead.
 
 ### Using Github Actions
