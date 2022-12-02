@@ -1242,34 +1242,32 @@ def send_email(account, type):
     email_sender = email_info[0]["sender"]
     email_password = email_info[0]["password"]
     email_receiver = email_info[0]["receiver"]
-
-    match type:
-        case "withdrawal":
-            if email_info[0]["withdrawal"] == "false":
-                return
-            email_subject = account + " has redeemed a card in Microsoft Rewards!"
-            email_body = "Check that account's mail!"
-        case "lock":
-            if email_info[0]["lock"] == "false":
-                return
-            email_subject = account + " has been locked from Microsoft Rewards!"
-            email_body = (
-                "Fix it by logging in through this link: https://rewards.microsoft.com/"
-            )
-        case "ban":
-            if email_info[0]["ban"] == "false":
-                return
-            email_subject = account + " has been shadow banned from Microsoft Rewards!"
-            email_body = "You can either close your account or try contacting support: https://support.microsoft.com/en-US"
-        case "phoneverification":
-            if email_info[0]["phoneverification"] == "false":
-                return
-            email_subject = account + " needs phone verification for redeeming rewards!"
-            email_body = (
-                "Fix it by manually redeeming a reward: https://rewards.microsoft.com/"
-            )
-        case _:
+    
+    if type == "withdrawal":
+        if email_info[0]["withdrawal"] == "false":
             return
+        email_subject = account + " has redeemed a card in Microsoft Rewards!"
+        email_body = "Check that account's mail!"
+        
+    elif type == "lock":
+        if email_info[0]["lock"] == "false":
+            return
+        email_subject = account + " has been locked from Microsoft Rewards!"
+        email_body = "Fix it by logging in through this link: https://rewards.microsoft.com/"
+        
+    elif type == "ban":
+        if email_info[0]["ban"] == "false":
+                return
+        email_subject = account + " has been shadow banned from Microsoft Rewards!"
+        email_body = "You can either close your account or try contacting support: https://support.microsoft.com/en-US"
+        
+    elif type == "phoneverification":
+        if email_info[0]["phoneverification"] == "false":
+                return
+        email_subject = account + " needs phone verification for redeeming rewards!"
+        email_body = "Fix it by manually redeeming a reward: https://rewards.microsoft.com/"
+    else:
+        return
 
     email_message = EmailMessage()
     email_message["From"] = email_sender
@@ -1408,8 +1406,8 @@ def redeem(browser, goal):
             ).click()
         try:
             url = browser.current_url
-            url = url.split("https://rewards.microsoft.com/redeem/")
-            id = url[1]
+            url = url.split("/")
+            id = url[-1]
             try:
                 browser.find_element(
                     By.XPATH, value=f'//*[@id="redeem-pdp_{id}"]'
@@ -1449,7 +1447,7 @@ def redeem(browser, goal):
         except:
             pass
         finally:
-            time.sleep(random.uniform(10, 20))
+            time.sleep(random.uniform(5, 10))
         try:
             error = browser.find_element(
                 By.XPATH, value='//*[@id="productCheckoutError"]/div/div[1]'
@@ -1467,7 +1465,7 @@ def redeem(browser, goal):
         except:
             pass
 
-        prGreen("[REDEEM]" + CURRENT_ACCOUNT + " points redeemed!")
+        prGreen("[REDEEM] " + CURRENT_ACCOUNT + " points redeemed!")
         if ARGS.emailalerts:
             prGreen(
                 "[EMAIL SENDER] This account has redeemed a reward! Sending email..."
