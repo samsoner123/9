@@ -171,11 +171,19 @@ def login(browser: WebDriver, email: str, pwd: str, isMobile: bool = False):
             cleanLogs()
             os._exit(0)
         else:
-            LOGS[CURRENT_ACCOUNT]['Last check'] = 'Unknown error !'
-            FINISHED_ACCOUNTS.append(CURRENT_ACCOUNT)
-            updateLogs()
-            cleanLogs()
-            raise Exception(prRed('[ERROR] Unknown error !'))
+            # Check if a second chance has already been given
+            if LOGS[CURRENT_ACCOUNT]['Last check'] == 'Unknown error !':
+                FINISHED_ACCOUNTS.append(CURRENT_ACCOUNT)
+                updateLogs()
+                cleanLogs()
+                raise Exception(prRed('[ERROR] Unknown error !'))
+            else:
+                LOGS[CURRENT_ACCOUNT]['Last check'] = 'Unknown error !'
+                updateLogs()
+            
+                # Log in again (second chance)
+                login(browser, email, pwd, isMobile)
+                return
     # Wait 5 seconds
     time.sleep(5)
     # Click Security Check
