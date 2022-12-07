@@ -125,6 +125,17 @@ def login(browser: WebDriver, email: str, pwd: str, isMobile: bool = False):
             updateLogs()
             cleanLogs()
             raise Exception(prRed('[ERROR] Your account has been locked !'))
+        elif isElementExists(browser, By.ID, 'mectrl_headerPicture') or 'Sign In or Create' in browser.title:
+            if isElementExists(browser, By.ID, 'i0118'):
+                browser.find_element(By.ID, "i0118").send_keys(pwd)
+                time.sleep(2)
+                browser.find_element(By.ID, 'idSIButton9').click()
+                time.sleep(5)
+                prGreen('[LOGIN] Account logged in again !')
+                RewardsLogin(browser)
+                print('[LOGIN]', 'Ensuring login on Bing...')
+                checkBingLogin(browser, isMobile)
+                return
     # Wait complete loading
     waitUntilVisible(browser, By.ID, 'loginHeader', 10)
     # Enter email
@@ -171,11 +182,19 @@ def login(browser: WebDriver, email: str, pwd: str, isMobile: bool = False):
             cleanLogs()
             os._exit(0)
         else:
-            LOGS[CURRENT_ACCOUNT]['Last check'] = 'Unknown error !'
-            FINISHED_ACCOUNTS.append(CURRENT_ACCOUNT)
-            updateLogs()
-            cleanLogs()
-            raise Exception(prRed('[ERROR] Unknown error !'))
+            # Check if a second chance has already been given
+            if LOGS[CURRENT_ACCOUNT]['Last check'] == 'Unknown error !':
+                FINISHED_ACCOUNTS.append(CURRENT_ACCOUNT)
+                updateLogs()
+                cleanLogs()
+                raise Exception(prRed('[ERROR] Unknown error !'))
+            else:
+                LOGS[CURRENT_ACCOUNT]['Last check'] = 'Unknown error !'
+                updateLogs()
+            
+                # Log in again (second chance)
+                login(browser, email, pwd, isMobile)
+                return
     # Wait 5 seconds
     time.sleep(5)
     # Click Security Check
@@ -1041,14 +1060,12 @@ def validateTime(time: str):
         return t
 
 def argumentParser():
-    '''
-    getting args from command line (--everyday [time:(HH:MM)], --session, --headless)
-    '''
+    '''getting args from command line'''
     parser = ArgumentParser(description="Microsoft Rewards Farmer V2.1", 
-                                    allow_abbrev=False, 
-                                    usage="You may use execute the program with the default config or use arguments to configure available options.")
+                            allow_abbrev=False, 
+                            usage="You may use execute the program with the default config or use arguments to configure available options.")
     parser.add_argument('--everyday', 
-                        metavar=None,
+                        metavar='HH:MM',
                         help='[Optional] This argument takes an input as time in 24h format (HH:MM) to execute the program at the given time everyday.', 
                         type=str, 
                         required=False)
@@ -1242,34 +1259,32 @@ def send_email(account, type):
     email_sender = email_info[0]["sender"]
     email_password = email_info[0]["password"]
     email_receiver = email_info[0]["receiver"]
-
-    match type:
-        case "withdrawal":
-            if email_info[0]["withdrawal"] == "false":
-                return
-            email_subject = account + " has redeemed a card in Microsoft Rewards!"
-            email_body = "Check that account's mail!"
-        case "lock":
-            if email_info[0]["lock"] == "false":
-                return
-            email_subject = account + " has been locked from Microsoft Rewards!"
-            email_body = (
-                "Fix it by logging in through this link: https://rewards.microsoft.com/"
-            )
-        case "ban":
-            if email_info[0]["ban"] == "false":
-                return
-            email_subject = account + " has been shadow banned from Microsoft Rewards!"
-            email_body = "You can either close your account or try contacting support: https://support.microsoft.com/en-US"
-        case "phoneverification":
-            if email_info[0]["phoneverification"] == "false":
-                return
-            email_subject = account + " needs phone verification for redeeming rewards!"
-            email_body = (
-                "Fix it by manually redeeming a reward: https://rewards.microsoft.com/"
-            )
-        case _:
+    
+    if type == "withdrawal":
+        if email_info[0]["withdrawal"] == "false":
             return
+        email_subject = account + " has redeemed a card in Microsoft Rewards!"
+        email_body = "Check that account's mail!"
+        
+    elif type == "lock":
+        if email_info[0]["lock"] == "false":
+            return
+        email_subject = account + " has been locked from Microsoft Rewards!"
+        email_body = "Fix it by logging in through this link: https://rewards.microsoft.com/"
+        
+    elif type == "ban":
+        if email_info[0]["ban"] == "false":
+                return
+        email_subject = account + " has been shadow banned from Microsoft Rewards!"
+        email_body = "You can either close your account or try contacting support: https://support.microsoft.com/en-US"
+        
+    elif type == "phoneverification":
+        if email_info[0]["phoneverification"] == "false":
+                return
+        email_subject = account + " needs phone verification for redeeming rewards!"
+        email_body = "Fix it by manually redeeming a reward: https://rewards.microsoft.com/"
+    else:
+        return
 
     email_message = EmailMessage()
     email_message["From"] = email_sender
@@ -1408,8 +1423,8 @@ def redeem(browser, goal):
             ).click()
         try:
             url = browser.current_url
-            url = url.split("https://rewards.microsoft.com/redeem/")
-            id = url[1]
+            url = url.split("/")
+            id = url[-1]
             try:
                 browser.find_element(
                     By.XPATH, value=f'//*[@id="redeem-pdp_{id}"]'
@@ -1449,7 +1464,7 @@ def redeem(browser, goal):
         except:
             pass
         finally:
-            time.sleep(random.uniform(10, 20))
+            time.sleep(random.uniform(5, 10))
         try:
             error = browser.find_element(
                 By.XPATH, value='//*[@id="productCheckoutError"]/div/div[1]'
@@ -1467,7 +1482,7 @@ def redeem(browser, goal):
         except:
             pass
 
-        prGreen("[REDEEM]" + CURRENT_ACCOUNT + " points redeemed!")
+        prGreen("[REDEEM] " + CURRENT_ACCOUNT + " points redeemed!")
         if ARGS.emailalerts:
             prGreen(
                 "[EMAIL SENDER] This account has redeemed a reward! Sending email..."
@@ -1598,6 +1613,8 @@ def main():
     hour, remain = divmod(delta, 3600)
     min, sec = divmod(remain, 60)
     print(f"The script took : {hour:02.0f}:{min:02.0f}:{sec:02.0f}")
+    LOGS["Elapsed time"] = f"{hour:02.0f}:{min:02.0f}:{sec:02.0f}"
+    updateLogs()
           
 if __name__ == '__main__':
     main()
