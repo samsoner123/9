@@ -125,6 +125,17 @@ def login(browser: WebDriver, email: str, pwd: str, isMobile: bool = False):
             updateLogs()
             cleanLogs()
             raise Exception(prRed('[ERROR] Your account has been locked !'))
+        elif isElementExists(browser, By.ID, 'mectrl_headerPicture') or 'Sign In or Create' in browser.title:
+            if isElementExists(browser, By.ID, 'i0118'):
+                browser.find_element(By.ID, "i0118").send_keys(pwd)
+                time.sleep(2)
+                browser.find_element(By.ID, 'idSIButton9').click()
+                time.sleep(5)
+                prGreen('[LOGIN] Account logged in again !')
+                RewardsLogin(browser)
+                print('[LOGIN]', 'Ensuring login on Bing...')
+                checkBingLogin(browser, isMobile)
+                return
     # Wait complete loading
     waitUntilVisible(browser, By.ID, 'loginHeader', 10)
     # Enter email
@@ -1049,14 +1060,12 @@ def validateTime(time: str):
         return t
 
 def argumentParser():
-    '''
-    getting args from command line (--everyday [time:(HH:MM)], --session, --headless)
-    '''
+    '''getting args from command line'''
     parser = ArgumentParser(description="Microsoft Rewards Farmer V2.1", 
-                                    allow_abbrev=False, 
-                                    usage="You may use execute the program with the default config or use arguments to configure available options.")
+                            allow_abbrev=False, 
+                            usage="You may use execute the program with the default config or use arguments to configure available options.")
     parser.add_argument('--everyday', 
-                        metavar=None,
+                        metavar='HH:MM',
                         help='[Optional] This argument takes an input as time in 24h format (HH:MM) to execute the program at the given time everyday.', 
                         type=str, 
                         required=False)
@@ -1604,6 +1613,8 @@ def main():
     hour, remain = divmod(delta, 3600)
     min, sec = divmod(remain, 60)
     print(f"The script took : {hour:02.0f}:{min:02.0f}:{sec:02.0f}")
+    LOGS["Elapsed time"] = f"{hour:02.0f}:{min:02.0f}:{sec:02.0f}"
+    updateLogs()
           
 if __name__ == '__main__':
     main()
