@@ -6,6 +6,7 @@
     "withdrawal": "true",
     "lock": "true",
     "ban": "true",
-    "phoneverification": "true"
+    "phoneverification": "true",
+    "proxyfail": "false"
   }
 ]

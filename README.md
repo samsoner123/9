@@ -45,7 +45,8 @@ pip install -r requirements.txt
     "withdrawal": "true",
     "lock": "true",
     "ban": "true",
-    "phoneverification": "true"
+    "phoneverification": "true",
+    "proxyfail": "false"
   }
 ]
 ```
@@ -59,7 +60,8 @@ pip install -r requirements.txt
     - `--fast` Reduce delays where ever it's possible to make script faster.
     - `--error` Display errors when app fails.
     - `--accounts` Add accounts (email1:password1 email2:password2..).
-    - `--proxies` Add proxies without authentification (proxy1 proxy2..).
+    - `--proxies` Add proxies (proxy1 proxy2..). Proxies that require authentication should follow this format -> **hostname:port:username:password**.
+    - `--authproxies` Use this argument to indicate that your proxies require authentication. **NOTE for Windows users**: headless mode is not supported when using this argument. **NOTE for Linux Server users**: install **xvfb** package if you are running the script on a Linux server, otherwise the script won't run when using this argument.
     - `--privacy` Enable privacy mode.
     - `--emailalerts` Enable GMAIL email alerts.
     - `--redeem` Enable auto-redeem rewards based on accounts.json goals.

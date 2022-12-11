@@ -29,6 +29,10 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.chrome.options import Options
+
+from pyvirtualdisplay import Display
+import zipfile
 
 from email.message import EmailMessage
 import ssl
@@ -51,7 +55,6 @@ FAST = False # When this variable set True then all possible delays reduced.
 # Define browser setup function
 def browserSetup(isMobile: bool, user_agent: str = PC_USER_AGENT, proxy: str = None) -> WebDriver:
     # Create Chrome browser
-    from selenium.webdriver.chrome.options import Options
     options = Options()
     if ARGS.session:
         if not isMobile:
@@ -70,16 +73,85 @@ def browserSetup(isMobile: bool, user_agent: str = PC_USER_AGENT, proxy: str = N
     options.add_experimental_option("prefs", prefs)
     options.add_experimental_option("useAutomationExtension", False)
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    if ARGS.headless:
+    if ARGS.headless and not ARGS.authproxies:
         options.add_argument("--headless")
     options.add_argument('log-level=3')
     options.add_argument("--start-maximized")
     if platform.system() == 'Linux':
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
-    if proxy:
+    if proxy and not ARGS.authproxies:
         options.add_argument(f"--proxy-server={proxy}")
     
+    if proxy and ARGS.authproxies:
+        # Create extension that will authenticate our proxies for us
+        
+        # Auth proxy format: hostname:port:username:password
+        proxy_info = proxy.split(":")
+        proxy_hostname = proxy_info[0]
+        proxy_port = proxy_info[1]
+        proxy_username = proxy_info[2]
+        proxy_password = proxy_info[3]
+        
+        extension = 'proxy_auth_extension.zip'
+        
+        manifest_json = """
+        {
+            "version": "1.0.0",
+            "manifest_version": 2,
+            "name": "Chrome Proxy",
+            "permissions": [
+                "proxy",
+                "tabs",
+                "unlimitedStorage",
+                "storage",
+                "<all_urls>",
+                "webRequest",
+                "webRequestBlocking"
+            ],
+            "background": {
+                "scripts": ["background.js"]
+            },
+            "minimum_chrome_version":"22.0.0"
+        }
+        """
+        
+        background_js = """
+        var config = {
+                mode: "fixed_servers",
+                rules: {
+                singleProxy: {
+                    scheme: "http",
+                    host: "%s",
+                    port: parseInt(%s)
+                },
+                bypassList: ["localhost"]
+                }
+            };
+
+        chrome.proxy.settings.set({value: config, scope: "regular"}, function() {});
+
+        function callbackFn(details) {
+            return {
+                authCredentials: {
+                    username: "%s",
+                    password: "%s"
+                }
+            };
+        }
+
+        chrome.webRequest.onAuthRequired.addListener(
+                    callbackFn,
+                    {urls: ["<all_urls>"]},
+                    ['blocking']
+        );
+        """ % (proxy_hostname, proxy_port, proxy_username, proxy_password)
+
+        with zipfile.ZipFile(extension, 'w') as zp:
+            zp.writestr("manifest.json", manifest_json)
+            zp.writestr("background.js", background_js)
+        options.add_extension(extension)
+        
     chrome_browser_obj = None
     try:
         chrome_browser_obj = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
@@ -171,13 +243,19 @@ def login(browser: WebDriver, email: str, pwd: str, isMobile: bool = False):
         if browser.title == "Your account has been temporarily suspended" or isElementExists(browser, By.CLASS_NAME, "serviceAbusePageContainer  PageContainer"):
             LOGS[CURRENT_ACCOUNT]['Last check'] = 'Your account has been locked !'
             FINISHED_ACCOUNTS.append(CURRENT_ACCOUNT)
+            if ARGS.emailalerts:
+                prRed("[EMAIL SENDER] This account has been locked! Sending email...")
+                send_email(CURRENT_ACCOUNT, "lock")
             updateLogs()
             cleanLogs()
             raise Exception(prRed('[ERROR] Your account has been locked !'))
         elif browser.title == "Help us protect your account":
             prRed('[ERROR] Unusual activity detected !')
             LOGS[CURRENT_ACCOUNT]['Last check'] = 'Unusual activity detected !'
-            FINISHED_ACCOUNTS.append(CURRENT_ACCOUNT)       
+            FINISHED_ACCOUNTS.append(CURRENT_ACCOUNT)
+            if ARGS.emailalerts:
+                prRed("[EMAIL SENDER] This account has been locked! Sending email...")
+                send_email(CURRENT_ACCOUNT, "lock")
             updateLogs()
             cleanLogs()
             os._exit(0)
@@ -1093,6 +1171,10 @@ def argumentParser():
                         help='[Optional] Add proxies.',
                         nargs="*",
                         required=False)
+    parser.add_argument('--authproxies',
+                        help="[Optional] Only use if your proxies require authentication. Format -> hostname:port:username:password",
+                        action='store_true',
+                        required=False)
     parser.add_argument('--privacy',
                         help='[Optional] Enable privacy mode.',
                         action='store_true',
@@ -1250,6 +1332,7 @@ def send_email(account, type):
                             "lock": "true",
                             "ban": "true",
                             "phoneverification": "true",
+                            "proxyfail": "false",
                         }
                     ],
                     indent=4,
@@ -1283,6 +1366,11 @@ def send_email(account, type):
                 return
         email_subject = account + " needs phone verification for redeeming rewards!"
         email_body = "Fix it by manually redeeming a reward: https://rewards.microsoft.com/"
+    elif type == "proxyfail":
+        if email_info[0]["proxyfail"] == "false":
+                return
+        email_subject = "Proxies are not working properly!"
+        email_body = "This can happen if proxies have stopped working or if they have not been properly set (check proxy format)."
     else:
         return
 
@@ -1494,6 +1582,34 @@ def redeem(browser, goal):
         prRed("[REDEEM] Ran into an exception trying to redeem!")
         return
 
+def remove_malfunctioning_proxies():
+    malfunctioning_proxies = []
+    
+    # Get original IP
+    og_browser = browserSetup(False, PC_USER_AGENT, None)
+    og_browser.get("https://ipecho.net/plain")
+    og_ip = og_browser.find_element(By.XPATH, value='/html/body').text
+    og_browser.quit()
+    
+    # Check that every proxy has a different IP
+    for proxy in ARGS.proxies:
+        try:
+            # Get proxy IP
+            proxy_browser = browserSetup(False, PC_USER_AGENT, proxy)
+            proxy_browser.get("https://ipecho.net/plain")
+            proxy_ip = proxy_browser.find_element(By.XPATH, value='/html/body').text
+            proxy_browser.quit()
+            
+            if og_ip == proxy_ip:
+                malfunctioning_proxies.append(proxy)
+        except Exception:
+            malfunctioning_proxies.append(proxy)
+        finally:
+            continue
+        
+    for malfunctioning_proxy in malfunctioning_proxies:
+        ARGS.proxies.remove(malfunctioning_proxy)
+
 def farmer():
     '''
     fuction that runs other functions to farm.
@@ -1589,13 +1705,31 @@ def farmer():
 
 def main():
     global LANG, GEO, TZ, ARGS
+    
     start = time.time()
     # show colors in terminal
     if os.name == 'nt':
         os.system('color')
     # Get the arguments from the command line
     ARGS = argumentParser()
+    
     LANG, GEO, TZ = getCCodeLangAndOffset()
+    
+    # Enable virtual display if headless argument is present and proxies require authentication (Linux)
+    if platform.system() == "Linux" and ARGS.headless and ARGS.proxies and ARGS.authproxies:
+        display = Display(visible=0, size=(800, 600))
+        display.start()
+    
+    if ARGS.proxies:
+        remove_malfunctioning_proxies()
+        if not ARGS.proxies:
+            prRed("[PROXY CHECKER] Introduced proxies are not valid, exiting...")
+            if ARGS.emailalerts:
+                send_email("", "proxyfail")
+            os._exit(0)
+        else:
+            prGreen("[PROXY CHECKER] Malfunctioning proxies have been removed, starting farmer...")
+    
     # load accounts
     loadAccounts()
     # set time to launch the program if everyday is set
@@ -1608,6 +1742,9 @@ def main():
     else:
         logs()
         farmer()
+    # Disable virtual display if it has been activated (Linux)
+    if platform.system() == "Linux" and ARGS.headless and ARGS.proxies and ARGS.authproxies:
+        display.stop()
     end = time.time()
     delta = end - start
     hour, remain = divmod(delta, 3600)

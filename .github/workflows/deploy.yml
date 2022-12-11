@@ -20,7 +20,9 @@ jobs:
         with:
           checkName: test
           token: ${{ github.token }}
-      - name: Install dependencies
+      - name: Install virtual display dependencies
+        run: sudo apt install -y xvfb
+      - name: Install python dependencies
         run: pip install -r requirements.txt
       - name: Run Script
         run: timeout 1800 python MicrosoftRewardsBot.py --accounts ${{ secrets.ACCOUNTS }} --headless --fast --privacy
