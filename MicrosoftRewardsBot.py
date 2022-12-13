@@ -1502,13 +1502,13 @@ def redeem(browser, goal):
                 By.XPATH,
                 value="/html/body/div[1]/div[2]/main/div/ui-view/mee-rewards-dashboard/main/div/mee-rewards-redeem-info-card/div/mee-card-group/div/div[1]/mee-card/div/card-content/mee-rewards-redeem-goal-card/div/div[2]/div/a[1]/span/ng-transclude",
             ).click()
-            time.sleep(random.uniform(2, 4))
+            time.sleep(random.uniform(5, 7))
         except:
-            time.sleep(random.uniform(3, 5))
             browser.find_element(
                 By.XPATH,
                 value="/html/body/div[1]/div[2]/main/div/ui-view/mee-rewards-dashboard/main/div/mee-rewards-redeem-info-card/div/mee-card-group/div/div[1]/mee-card/div/card-content/mee-rewards-redeem-goal-card/div/div[2]/div/a[1]",
             ).click()
+            time.sleep(random.uniform(5, 7))
         try:
             url = browser.current_url
             url = url.split("/")
@@ -1517,7 +1517,7 @@ def redeem(browser, goal):
                 browser.find_element(
                     By.XPATH, value=f'//*[@id="redeem-pdp_{id}"]'
                 ).click()
-                time.sleep(random.uniform(3, 5))
+                time.sleep(random.uniform(5, 7))
             except:
                 browser.find_element(
                     By.XPATH, value=f'//*[@id="redeem-pdp_{id}"]/span[1]'
@@ -1526,7 +1526,7 @@ def redeem(browser, goal):
                 browser.find_element(
                     By.XPATH, value='//*[@id="redeem-checkout-review-confirm"]'
                 ).click()
-                time.sleep(random.uniform(3, 5))
+                time.sleep(random.uniform(5, 7))
             except:
                 browser.find_element(
                     By.XPATH, value='//*[@id="redeem-checkout-review-confirm"]/span[1]'
